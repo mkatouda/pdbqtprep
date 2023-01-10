@@ -1,0 +1,11 @@
+pdbid: '1W7X'
+#pdbfile: './1W7X.pdb'
+outbasename: '1W7X'
+remove-chains: ['L']
+keep-heterogens: 'none'
+add-atoms: 'all'
+replace-nonstandard: True
+add-residues: True
+ph: 7.4
+ignore_terminal_missing_residues: True
+verbose: True

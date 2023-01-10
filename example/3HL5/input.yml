@@ -1,0 +1,11 @@
+pdbid: '3HL5'
+#pdbfile: './3HL5.pdb'
+outbasename: '3HL5'
+remove-chains: ['B']
+keep-heterogens: 'none'
+add-atoms: 'all'
+replace-nonstandard: True
+add-residues: True
+ph: 7.4
+ignore_terminal_missing_residues: True
+verbose: True

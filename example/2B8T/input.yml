@@ -1,0 +1,11 @@
+pdbid: '2B8T'
+#pdbfile: './2B8T.pdb'
+outbasename: '2B8T'
+remove-chains: ['B', 'C', 'D']
+keep-heterogens: 'none'
+add-atoms: 'all'
+replace-nonstandard: True
+add-residues: True
+ph: 7.4
+ignore_terminal_missing_residues: True
+verbose: True

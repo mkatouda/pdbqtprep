@@ -1,0 +1,11 @@
+pdbid: '1MV9'
+#pdbfile: './1MV9.pdb'
+outbasename: '1MV9'
+remove-chains: ['B']
+keep-heterogens: 'none'
+add-atoms: 'all'
+replace-nonstandard: True
+add-residues: True
+ph: 7.4
+ignore_terminal_missing_residues: True
+verbose: True

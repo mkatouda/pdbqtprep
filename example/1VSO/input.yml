@@ -1,0 +1,11 @@
+pdbid: '1VSO'
+#pdbfile: './1VSO.pdb'
+outbasename: '1VSO'
+remove-chains: 
+keep-heterogens: 'none'
+add-atoms: 'all'
+replace-nonstandard: True
+add-residues: True
+ph: 7.4
+ignore_terminal_missing_residues: True
+verbose: True
