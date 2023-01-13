@@ -39,10 +39,10 @@ pip install https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3.git
 pip install git+https://github.com/mkatouda/pdbqtprep.git
 ```
 
-- Install placingmd from local repository  
+- Install pdbqtprep from local repository  
 ```
 git clone https://github.com/mkatouda/pdbqtprep.git
-cd placingmd
+cd pdbqreprep
 pip install .
 ```
 
