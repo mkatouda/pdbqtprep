@@ -2,9 +2,9 @@ from setuptools import setup
 
 setup(
     name="pdbqtprep",
-    version="0.0.1",
+    version="0.1.1",
     install_requires=[
-        'pyyaml', 'numpy', 'pdbfixer', 'openmm >= 7.1'
+        'pyyaml', 'numpy', 'scipy', 'pdbfixer', 'openmm >= 7.1', 'meeko'
     ],
     entry_points={
         'console_scripts': [
@@ -13,7 +13,7 @@ setup(
     },
     author="Michio Katouda",
     author_email="katouda@rist.or.jp",
-    description="Autodock Vina protein PDBQT file prepare tool",
+    description="Autodock Vina protein and ligand PDBQT file prepare tool from PDB file",
     url="https://github.com/mkatouda/pdbqtprep",
     packages=setuptools.find_packages(),
     classifiers=[

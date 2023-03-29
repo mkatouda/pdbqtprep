@@ -12,6 +12,9 @@ from pdbfixer import PDBFixer
 from openmm.app import PDBFile
 from MolKit import Read
 from AutoDockTools.MoleculePreparation import AD4ReceptorPreparation
+from rdkit import Chem
+from rdkit.Chem import rdMolTransforms
+from meeko import MoleculePreparation
 
 
 def get_parser():
@@ -21,7 +24,7 @@ def get_parser():
 
     parser = argparse.ArgumentParser(
         formatter_class=customHelpFormatter,
-        description="gromax protein-ligand MD trajectory analysis tools"
+        description="protein and ligand coordinate files from a complex pdb file"
     )
     parser.add_argument(
         '-i', '--inp', type=str,
@@ -72,14 +75,14 @@ def get_parser():
         help='Random seed'
     )
     parser.add_argument(
+        '--ligid', type=str, default=None, dest='ligid',
+        help='Ligand ID in PDB file'
+    )
+    parser.add_argument(
         '-v', '--verbose', action='store_true', dest='verbose',
         help='Print verbose output'
     )
-    args = parser.parse_args()
-
-    print(args)
-
-    return args 
+    return parser.parse_args()
 
 def set_config(args):
     # Read config yaml file
@@ -95,41 +98,24 @@ def set_config(args):
 
     return conf
 
-def pdbqtprep_main(conf):
-
-    pdbid = conf['pdbid']
-    pdburl = conf['url']
-    pdbin_path = conf['pdbfile']
-    outbasename = conf['outbasename']
-    pdbout_path = os.path.abspath(outbasename + '_fixed.pdb')
-    pdbqtout_path = os.path.abspath(outbasename + '_fixed.pdbqt')
-    add_atoms = conf['add-atoms']
-    keep_heterogens = conf['keep-heterogens']
-    add_residues = conf['add-residues']
-    ignore_terminal_missing_residues = conf['ignore_terminal_missing_residues']
-    ph = conf['ph']
-    removeChains = conf['remove-chains']
-    seed = conf['seed']
-    verbose = conf['verbose']
-
-    if verbose:
-        print('pdbin_path:', pdbin_path)
-        print('pdbout_path:', pdbout_path)
-        print('pdbqtout_path:', pdbqtout_path)
+def pdbqt_pro(pdbid, pdburl, pdbin_path, pro_pdbout_path, pro_pdbqtout_path,
+              add_atoms='all', keep_heterogens='all', add_residues=False,
+              ignore_terminal_missing_residues=True,
+              removeChains=None, ph=7.4, seed=None, verbose=False):
 
     if pdbid != None:
         print('Retrieving PDB "' + pdbid + '" from RCSB...')
         fixer = PDBFixer(pdbid=pdbid)
         pdburl = 'http://www.rcsb.org/pdb/files/%s.pdb' % pdbid
         data = urllib.request.urlopen(pdburl).read()
-        pdbin_path = os.path.abspath(outbasename + '.pdb')
+        pdbin_path = os.path.abspath(pdbid + '.pdb')
         with open(pdbin_path, mode='wb') as f:
             f.write(data)
     elif pdburl != None:
         print('Retrieving PDB from URL "' + pdburl + '"...')
         fixer = PDBFixer(url=pdburl)
         data = urllib.request.urlopen(pdburl).read()
-        pdbin_path = os.path.abspath(outbasename + '.pdb')
+        pdbin_path = os.path.abspath(pdburl + '.pdb')
         with open(pdbin_path, mode='wb') as f:
             f.write(data)
     else:
@@ -188,7 +174,7 @@ def pdbqtprep_main(conf):
         print('Adding missing hydrogens...')
         fixer.addMissingHydrogens(ph)
 
-    with open(pdbout_path, 'w') as f:
+    with open(pro_pdbout_path, 'w') as f:
         if fixer.source is not None:
             f.write("REMARK   1 PDBFIXER FROM: %s\n" % fixer.source)
         PDBFile.writeFile(fixer.topology, fixer.positions, f, True)
@@ -202,7 +188,7 @@ def pdbqtprep_main(conf):
     dictionary = None
 
     #mols = Read(pdbin_path)
-    mols = Read(pdbout_path)
+    mols = Read(pro_pdbout_path)
     mol = mols[0]
 
     unique_atom_names = False
@@ -217,13 +203,80 @@ def pdbqtprep_main(conf):
     alt_loc_ats = mol.allAtoms.get(lambda x: "@" in x.name)
     len_alt_loc_ats = len(alt_loc_ats)
     if len_alt_loc_ats:
-        print("WARNING!", mol.name, "has",len_alt_loc_ats, ' alternate location atoms!\nUse prepare_pdb_split_alt_confs.py to create pdb files containing a single conformation.\n')
+        print("WARNING!", mol.name, "has", len_alt_loc_ats, ' alternate location atoms!\nUse prepare_pdb_split_alt_confs.py to create pdb files containing a single conformation.\n')
 
-    RPO = AD4ReceptorPreparation(mol, mode, repairs, charges_to_add, 
-                        cleanup, outputfilename=pdbqtout_path,
-                        preserved=preserved, 
-                        delete_single_nonstd_residues=delete_single_nonstd_residues,
-                        dict=dictionary)    
+    RPO = AD4ReceptorPreparation(
+        mol, mode, repairs, charges_to_add, 
+        cleanup,
+        outputfilename=pro_pdbqtout_path,
+        preserved=preserved, 
+        delete_single_nonstd_residues=delete_single_nonstd_residues,
+        dict=dictionary
+    )
+
+    print('final pdbin_path:', pdbin_path)
+    return pdbin_path
+
+def pdbqt_lig(pdbin_path, ligid, lig_molout_path, lig_pdbqtout_path, verbose=False):
+    mol = Chem.MolFromPDBFile(pdbin_path)
+    mol_split = Chem.rdmolops.SplitMolByPDBResidues(mol)
+    mol_lig = mol_split[ligid]
+    mol_lig = Chem.RemoveHs(mol_lig)
+    mol_lig = Chem.AddHs(mol_lig, addCoords=True)
+    Chem.MolToMolFile(mol_lig, lig_molout_path)
+    mol_lig_conf = mol_lig.GetConformer(-1)
+    com = list(rdMolTransforms.ComputeCentroid(mol_lig_conf))
+
+    if verbose:
+        print(Chem.MolToMolBlock(mol_lig))
+        print('COM of ligand:', com)
+
+    config = MoleculePreparation.get_defaults_dict()
+    if verbose: print('MoleculePreparation config:', config)
+    preparator = MoleculePreparation.from_config(config)
+    preparator.prepare(mol_lig)
+    mol_lig_pdbqt = preparator.write_pdbqt_string()
+    with open(lig_pdbqtout_path, 'w') as f:
+        f.write(mol_lig_pdbqt)
+
+def pdbqtprep_main(conf):
+
+    pdbid = conf['pdbid']
+    pdburl = conf['url']
+    pdbin_path = conf['pdbfile']
+    outbasename = conf['outbasename']
+    pro_pdbout_path = os.path.abspath(outbasename + '_pro.pdb')
+    pro_pdbqtout_path = os.path.abspath(outbasename + '_pro.pdbqt')
+    ligid = conf['ligid']
+    lig_molout_path = os.path.abspath(outbasename + '_lig.mol')
+    lig_pdbout_path = os.path.abspath(outbasename + '_lig.pdb')
+    lig_pdbqtout_path = os.path.abspath(outbasename + '_lig.pdbqt')
+    add_atoms = conf['add-atoms']
+    keep_heterogens = conf['keep-heterogens']
+    add_residues = conf['add-residues']
+    ignore_terminal_missing_residues = conf['ignore_terminal_missing_residues']
+    removeChains = conf['remove-chains']
+    ph = conf['ph']
+    seed = conf['seed']
+    verbose = conf['verbose']
+
+    if verbose:
+        print('pdbin_path:', pdbin_path)
+        print('pro_pdbout_path:', pro_pdbout_path)
+        print('pro_pdbqtout_path:', pro_pdbqtout_path)
+        if ligid is not None:
+            print('lig_molout_path:', lig_molout_path)
+            print('lig_pdbqtout_path:', lig_pdbqtout_path)
+
+    pdbin_path = pdbqt_pro(pdbid, pdburl, pdbin_path, pro_pdbout_path, pro_pdbqtout_path,
+                           add_atoms=add_atoms, keep_heterogens=keep_heterogens,
+                           add_residues=add_residues,
+                           ignore_terminal_missing_residues=ignore_terminal_missing_residues,
+                           removeChains=removeChains, ph=ph, seed=seed, verbose=verbose)
+
+    if ligid is not None:
+        pdbqt_lig(pdbin_path, ligid, lig_molout_path, lig_pdbqtout_path,
+                  verbose=verbose)
 
 def main():
     args = get_parser()
