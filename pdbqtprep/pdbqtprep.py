@@ -5,6 +5,8 @@ import sys
 import argparse
 import subprocess
 import urllib
+import requests
+import json
 import pprint
 
 import yaml
@@ -32,11 +34,19 @@ def get_parser():
     )
     parser.add_argument(
         '-p', '--pdbfile', type=str, default=None, dest='pdbfile',
-        help = 'input PDB file'
+        help = 'input protein PDB file'
+    )
+    parser.add_argument(
+        '-l', '--ligfile', type=str, default=None, dest='ligfile',
+        help = 'input ligand file (mol, sdf)'
     )
     parser.add_argument(
         '--pdbid', type=str, default=None, dest='pdbid',
-        help='PDB id to retrieve from RCSB'
+        help='PDB ID to retrieve from RCSB'
+    )
+    parser.add_argument(
+        '--ligid', type=str, default=None, dest='ligid',
+        help='Ligand residue name to retrieve from RCSB'
     )
     parser.add_argument(
         '--url', type=str, default=None, dest='url',
@@ -73,10 +83,6 @@ def get_parser():
     parser.add_argument(
         '--seed', type=int, default=None, dest='seed',
         help='Random seed'
-    )
-    parser.add_argument(
-        '--ligid', type=str, default=None, dest='ligid',
-        help='Ligand ID in PDB file'
     )
     parser.add_argument(
         '-v', '--verbose', action='store_true', dest='verbose',
@@ -121,6 +127,8 @@ def pdbqt_pro(pdbid, pdburl, pdbin_path, pro_pdbout_path, pro_pdbqtout_path,
     else:
         print('Retrieving PDB from file "' + pdbin_path + '"...')
         fixer = PDBFixer(filename=pdbin_path)
+
+
 
     if keep_heterogens == 'none':
         fixer.removeHeterogens(False)
@@ -217,40 +225,113 @@ def pdbqt_pro(pdbid, pdburl, pdbin_path, pro_pdbout_path, pro_pdbqtout_path,
     print('final pdbin_path:', pdbin_path)
     return pdbin_path
 
-def pdbqt_lig(pdbin_path, ligid, lig_molout_path, lig_pdbqtout_path, verbose=False):
-    mol = Chem.MolFromPDBFile(pdbin_path)
-    mol_split = Chem.rdmolops.SplitMolByPDBResidues(mol)
-    mol_lig = mol_split[ligid]
-    mol_lig = Chem.RemoveHs(mol_lig)
-    mol_lig = Chem.AddHs(mol_lig, addCoords=True)
-    Chem.MolToMolFile(mol_lig, lig_molout_path)
-    mol_lig_conf = mol_lig.GetConformer(-1)
-    com = list(rdMolTransforms.ComputeCentroid(mol_lig_conf))
+def get_lig_from_PDB(entry_id, ligid, encoding='sdf', target_auth_asym_id='A',
+                     verbose=False):
+    url = f"https://data.rcsb.org/rest/v1/core/entry/{entry_id}"
+    risposta = requests.get(url)
+    parsed = json.loads(risposta.content.decode())
+    parsed_lig = parsed["rcsb_entry_container_identifiers"]["non_polymer_entity_ids"]
+    #print(parsed_lig)
 
-    if verbose:
-        print(Chem.MolToMolBlock(mol_lig))
-        print('COM of ligand:', com)
+    try:
+        parsed_binding_affinity = parsed["rcsb_binding_affinity"]
+        #print(parsed_binding_affinity, len(parsed_binding_affinity))
+        #print(parsed_binding_affinity[0])
+        binding_comp_id = parsed_binding_affinity[0]["comp_id"]
+    except:
+        if ligid is not None:
+            binding_comp_id = ligid
+        else:
+            binding_comp_id = None
+    print('binding_comp_id:', binding_comp_id)
+
+    parsed_lig_dict = {}
+    for lig in parsed_lig:
+        url = f"https://data.rcsb.org/rest/v1/core/nonpolymer_entity/{entry_id}/{lig}"
+        risposta = requests.get(url)
+        parsed = json.loads(risposta.content.decode())
+        parsed_lig_dict[lig] = [
+            parsed["pdbx_entity_nonpoly"]["comp_id"],
+            dict.fromkeys(parsed["rcsb_nonpolymer_entity_container_identifiers"]["asym_ids"]),
+        ]
+    if verbose: print(parsed_lig_dict)
+
+    for lig in parsed_lig_dict:
+        for i, chain in enumerate(parsed_lig_dict[lig][1]):
+            url = f"https://data.rcsb.org/rest/v1/core/nonpolymer_entity_instance/{entry_id}/{chain}"
+            risposta = requests.get(url)
+            parsed = json.loads(risposta.content.decode())
+            parsed_lig_dict[lig][1][chain] = [
+                parsed["rcsb_nonpolymer_entity_instance_container_identifiers"]["auth_asym_id"],
+                parsed["rcsb_nonpolymer_entity_instance_container_identifiers"]["auth_seq_id"]
+            ]
+    if verbose: print(parsed_lig_dict)
+
+    ligout_path = None
+    for lig in parsed_lig_dict:
+        comp_id = parsed_lig_dict[lig][0]
+        for chain in parsed_lig_dict[lig][1]:
+            auth_asym_id = parsed_lig_dict[lig][1][chain][0]
+            seq_id = parsed_lig_dict[lig][1][chain][1]
+            url = f"https://models.rcsb.org/v1/{entry_id}/ligand?auth_seq_id={seq_id}&label_asym_id={chain}&encoding={encoding}"
+            risposta = requests.get(url, allow_redirects=True)
+            out_path = f"{entry_id}_lig_{comp_id}_{chain}.{encoding}"
+            #out_path = f"{entry_id}_{chain}_{comp_id}.{encoding}"
+            print(lig, comp_id, seq_id, chain, auth_asym_id, url, out_path)
+            with open(out_path, 'wb') as f:
+                f.write(risposta.content)
+
+            if auth_asym_id == target_auth_asym_id and comp_id == binding_comp_id:
+                ligout_path = out_path
+                lig_molout_path = f"{entry_id}_lig_{comp_id}_{chain}_addH.mol"
+                lig_pdbqtout_path = f"{entry_id}_lig_{comp_id}_{chain}_addH.pdbqt"
+                gen_lig_pdbqt(out_path, lig_molout_path, lig_pdbqtout_path, verbose=verbose)
+                #ligout_path = f"{entry_id}_lig.{encoding}"
+                #print(lig, comp_id, seq_id, chain, auth_asym_id, url, out_path)
+                #with open(ligout_path, 'wb') as f:
+                #    f.write(risposta.content)
+
+    return ligout_path
+
+def gen_lig_pdbqt(ligin_path, lig_molout_path, lig_pdbqtout_path, verbose=False):
+    mol = Chem.MolFromMolFile(ligin_path)
+    mol = Chem.RemoveHs(mol)
+    mol = Chem.AddHs(mol, addCoords=True)
+    Chem.MolToMolFile(mol, lig_molout_path)
+    mol_conf = mol.GetConformer(-1)
+    com = list(rdMolTransforms.ComputeCentroid(mol_conf))
+
+    print('COM of ligand:', com)
+    if verbose: print(Chem.MolToMolBlock(mol))
 
     config = MoleculePreparation.get_defaults_dict()
     if verbose: print('MoleculePreparation config:', config)
     preparator = MoleculePreparation.from_config(config)
-    preparator.prepare(mol_lig)
-    mol_lig_pdbqt = preparator.write_pdbqt_string()
+    preparator.prepare(mol)
+    mol_pdbqt = preparator.write_pdbqt_string()
     with open(lig_pdbqtout_path, 'w') as f:
-        f.write(mol_lig_pdbqt)
+        f.write(mol_pdbqt)
+
+def pdbqt_lig(pdbid, ligid, ligin_path, lig_molout_path, lig_pdbqtout_path, verbose=False):
+
+    if pdbid != None:
+        ligin_path = get_lig_from_PDB(
+            pdbid, ligid, encoding='mol',
+            target_auth_asym_id='A', 
+            verbose=verbose
+        )
+    print('ligin_path:', ligin_path)
+
+    gen_lig_pdbqt(ligin_path, lig_molout_path, lig_pdbqtout_path, verbose=verbose)
 
 def pdbqtprep_main(conf):
 
     pdbid = conf['pdbid']
     pdburl = conf['url']
     pdbin_path = conf['pdbfile']
-    outbasename = conf['outbasename']
-    pro_pdbout_path = os.path.abspath(outbasename + '_pro.pdb')
-    pro_pdbqtout_path = os.path.abspath(outbasename + '_pro.pdbqt')
     ligid = conf['ligid']
-    lig_molout_path = os.path.abspath(outbasename + '_lig.mol')
-    lig_pdbout_path = os.path.abspath(outbasename + '_lig.pdb')
-    lig_pdbqtout_path = os.path.abspath(outbasename + '_lig.pdbqt')
+    ligin_path = conf['ligfile']
+    outbasename = conf['outbasename']
     add_atoms = conf['add-atoms']
     keep_heterogens = conf['keep-heterogens']
     add_residues = conf['add-residues']
@@ -260,13 +341,14 @@ def pdbqtprep_main(conf):
     seed = conf['seed']
     verbose = conf['verbose']
 
-    if verbose:
-        print('pdbin_path:', pdbin_path)
-        print('pro_pdbout_path:', pro_pdbout_path)
-        print('pro_pdbqtout_path:', pro_pdbqtout_path)
-        if ligid is not None:
-            print('lig_molout_path:', lig_molout_path)
-            print('lig_pdbqtout_path:', lig_pdbqtout_path)
+    pro_pdbout_path = os.path.abspath(outbasename + '_pro.pdb')
+    pro_pdbqtout_path = os.path.abspath(outbasename + '_pro.pdbqt')
+    lig_molout_path = os.path.abspath(outbasename + '_lig.mol')
+    lig_pdbout_path = os.path.abspath(outbasename + '_lig.pdb')
+    lig_pdbqtout_path = os.path.abspath(outbasename + '_lig.pdbqt')
+
+    print('pro_pdbout_path:', pro_pdbout_path)
+    print('pro_pdbqtout_path:', pro_pdbqtout_path)
 
     pdbin_path = pdbqt_pro(pdbid, pdburl, pdbin_path, pro_pdbout_path, pro_pdbqtout_path,
                            add_atoms=add_atoms, keep_heterogens=keep_heterogens,
@@ -274,10 +356,11 @@ def pdbqtprep_main(conf):
                            ignore_terminal_missing_residues=ignore_terminal_missing_residues,
                            removeChains=removeChains, ph=ph, seed=seed, verbose=verbose)
 
-    if ligid is not None:
-        pdbqt_lig(pdbin_path, ligid, lig_molout_path, lig_pdbqtout_path,
-                  verbose=verbose)
+    print('lig_molout_path:', lig_molout_path)
+    print('lig_pdbqtout_path:', lig_pdbqtout_path)
 
+    pdbqt_lig(pdbid, ligid, ligin_path, lig_molout_path, lig_pdbqtout_path, verbose=verbose)
+                  
 def main():
     args = get_parser()
     if args.verbose: print(args)
