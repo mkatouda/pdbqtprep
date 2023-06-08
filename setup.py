@@ -2,9 +2,9 @@ from setuptools import setup
 
 setup(
     name="pdbqtprep",
-    version="0.1.1",
+    version="0.1.2",
     install_requires=[
-        'pyyaml', 'numpy', 'scipy', 'pdbfixer', 'openmm >= 7.1', 'meeko'
+        'pyyaml', 'numpy', 'scipy', 'pdbfixer', 'openmm>=7.1', 'meeko>=0.4.0',
     ],
     entry_points={
         'console_scripts': [

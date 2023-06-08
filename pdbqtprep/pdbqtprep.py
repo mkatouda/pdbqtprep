@@ -61,7 +61,7 @@ def get_parser():
         help='which missing atoms to add: all, heavy, hydrogen, or none'
     )
     parser.add_argument(
-        '--keep-heterogens', default='all', dest='keep-heterogens', choices=('all', 'water', 'none'),
+        '--keep-heterogens', default='none', dest='keep-heterogens', choices=('all', 'water', 'none'),
         help='which heterogens to keep: all, water, or none'
     )
     parser.add_argument(
@@ -79,6 +79,11 @@ def get_parser():
     parser.add_argument(
         '--ph', type=float, default=7.4, dest='ph',
         help='the pH to use for adding missing hydrogens'
+    )
+    parser.add_argument(
+        '--ignore-terminal-missing-residues', action='store_true', default=False,
+        dest='ignore-terminal-missing-residues',
+        help='ignore terminal missing residues'
     )
     parser.add_argument(
         '--seed', type=int, default=None, dest='seed',
@@ -335,7 +340,7 @@ def pdbqtprep_main(conf):
     add_atoms = conf['add-atoms']
     keep_heterogens = conf['keep-heterogens']
     add_residues = conf['add-residues']
-    ignore_terminal_missing_residues = conf['ignore_terminal_missing_residues']
+    ignore_terminal_missing_residues = conf['ignore-terminal-missing-residues']
     removeChains = conf['remove-chains']
     ph = conf['ph']
     seed = conf['seed']

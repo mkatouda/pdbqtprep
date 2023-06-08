@@ -7,5 +7,5 @@ add-atoms: 'all'
 replace-nonstandard: True
 add-residues: True
 ph: 7.4
-ignore_terminal_missing_residues: True
+ignore-terminal-missing-residues: True
 verbose: True
